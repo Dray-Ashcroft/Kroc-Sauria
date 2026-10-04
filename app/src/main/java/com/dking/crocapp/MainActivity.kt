@@ -10,8 +10,7 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -302,27 +301,22 @@ fun CrocApp(
                 val toIndex = tabRoutes.indexOf(targetState.destination.route)
                 when {
                     fromIndex >= 0 && toIndex >= 0 -> {
-                        // Tab-to-tab: slide horizontally with spring
+                        // Tab-to-tab: slide + fade, same duration/easing so neither
+                        // one is still animating after the other has finished —
+                        // that mismatch (a spring settling slower than the fade)
+                        // was the main source of visible stutter here.
                         val direction = if (toIndex > fromIndex) 1 else -1
                         slideInHorizontally(
                             initialOffsetX = { direction * it / 4 },
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
-                        ) + fadeIn(
-                            animationSpec = tween(200)
-                        )
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing))
                     }
                     else -> {
                         // Push screens: slide up
-                        fadeIn(animationSpec = tween(200)) +
+                        fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
                                 slideInVertically(
                                     initialOffsetY = { it / 6 },
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMedium
-                                    )
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing)
                                 )
                     }
                 }
@@ -335,34 +329,26 @@ fun CrocApp(
                         val direction = if (toIndex > fromIndex) -1 else 1
                         slideOutHorizontally(
                             targetOffsetX = { direction * it / 4 },
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
-                        ) + fadeOut(
-                            animationSpec = tween(200)
-                        )
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing))
                     }
                     else -> {
-                        fadeOut(animationSpec = tween(200))
+                        fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
                     }
                 }
             },
             popEnterTransition = {
-                fadeIn(animationSpec = tween(200)) +
+                fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
                         slideInVertically(
                             initialOffsetY = { -it / 8 },
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
                         )
             },
             popExitTransition = {
-                fadeOut(animationSpec = tween(200)) +
+                fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
                         slideOutVertically(
                             targetOffsetY = { it / 6 },
-                            animationSpec = tween(200)
+                            animationSpec = tween(180, easing = FastOutSlowInEasing)
                         )
             }
         ) {
