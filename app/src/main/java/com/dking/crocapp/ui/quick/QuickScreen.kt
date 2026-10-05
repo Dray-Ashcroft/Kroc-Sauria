@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -71,6 +72,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -1312,15 +1315,19 @@ private fun DiamondButtonCluster(
         val clipPlaceable = measurables[2].measure(smallConstraints)
         val qrPlaceable = measurables[3].measure(smallConstraints)
 
-        // Calculate positions
-        // Total width = sendWidth + gap + receiveWidth
-        val totalMainWidth = sendPlaceable.width + gapPx + receivePlaceable.width
+        // Calculate positions. Centers are spaced using the fixed circle
+        // diameter (mainPx), NOT each placeable's measured width — the
+        // placeable's width includes its label text, and "Receive" measures
+        // wider than "Send" at the same font, which was making the gap
+        // between the two CIRCLES asymmetric (Send sat closer to center
+        // than Receive did). The circle is centered within its placeable by
+        // the Column's `horizontalAlignment`, so using mainPx here keeps
+        // both circles symmetric regardless of label width; the actual
+        // `place()` calls below still use each placeable's own width so the
+        // (possibly wider) label stays correctly centered under its circle.
         val centerX = constraints.maxWidth / 2
-
-        // Send button center
-        val sendCenterX = centerX - gapPx / 2 - sendPlaceable.width / 2
-        // Receive button center
-        val recvCenterX = centerX + gapPx / 2 + receivePlaceable.width / 2
+        val sendCenterX = centerX - gapPx / 2 - mainPx / 2
+        val recvCenterX = centerX + gapPx / 2 + mainPx / 2
 
         // Orbit radius: from center of main to center of small
         val orbitRadius = mainPx / 2 + radiusExtraPx + smallPx / 2
@@ -1369,8 +1376,24 @@ private fun DiamondButtonCluster(
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Button Components
+// Button Components — glassmorphic: translucent tinted fill (not fully
+// transparent) + a soft light rim + a diagonal sheen highlight, so each
+// circle reads as frosted glass sitting on the card rather than either a
+// flat opaque chip or literally invisible glass.
 // ═══════════════════════════════════════════════════════════════
+
+/** Fill alpha: translucent enough to tint with whatever's behind it, not so low it disappears. */
+private fun glassAlpha(enabled: Boolean) = if (enabled) 0.38f else 0.20f
+
+private val GlassRimBrush = Brush.linearGradient(
+    colors = listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f))
+)
+
+private val GlassSheenBrush = Brush.linearGradient(
+    colors = listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0f)),
+    start = Offset(0f, 0f),
+    end = Offset(220f, 220f)
+)
 
 @Composable
 private fun QuickCircleButton(
@@ -1410,7 +1433,7 @@ private fun QuickCircleButton(
             onClick = onClick,
             enabled = enabled,
             shape = CircleShape,
-            color = if (enabled) containerColor else containerColor.copy(alpha = 0.4f),
+            color = containerColor.copy(alpha = glassAlpha(enabled)),
             contentColor = contentColor,
             tonalElevation = 2.dp,
             shadowElevation = animatedElevation,
@@ -1418,10 +1441,13 @@ private fun QuickCircleButton(
             modifier = Modifier
                 .size(size)
                 .scale(scale)
+                .border(1.dp, GlassRimBrush, CircleShape)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(GlassSheenBrush, CircleShape)
             ) {
                 Icon(
                     imageVector = icon,
@@ -1466,7 +1492,7 @@ private fun SmallCircleButton(
         onClick = onClick,
         enabled = enabled,
         shape = CircleShape,
-        color = if (enabled) containerColor else containerColor.copy(alpha = 0.4f),
+        color = containerColor.copy(alpha = glassAlpha(enabled)),
         contentColor = contentColor,
         tonalElevation = 1.dp,
         shadowElevation = 3.dp,
@@ -1474,10 +1500,13 @@ private fun SmallCircleButton(
         modifier = Modifier
             .size(size)
             .scale(scale)
+            .border(1.dp, GlassRimBrush, CircleShape)
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .background(GlassSheenBrush, CircleShape)
         ) {
             Icon(
                 imageVector = icon,
@@ -1526,13 +1555,14 @@ private fun QuickCircleButtonWithLongPress(
     ) {
         Surface(
             shape = CircleShape,
-            color = if (enabled) containerColor else containerColor.copy(alpha = 0.4f),
+            color = containerColor.copy(alpha = glassAlpha(enabled)),
             contentColor = contentColor,
             tonalElevation = 2.dp,
             shadowElevation = animatedElevation,
             modifier = Modifier
                 .size(size)
                 .scale(scale)
+                .border(1.dp, GlassRimBrush, CircleShape)
                 .combinedClickable(
                     enabled = enabled,
                     onClick = onClick,
@@ -1543,7 +1573,9 @@ private fun QuickCircleButtonWithLongPress(
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(GlassSheenBrush, CircleShape)
             ) {
                 Icon(
                     imageVector = icon,
