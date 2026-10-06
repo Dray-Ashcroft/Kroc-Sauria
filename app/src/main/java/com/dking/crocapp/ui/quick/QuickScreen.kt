@@ -1385,10 +1385,12 @@ private fun DiamondButtonCluster(
 /** Fill alpha: translucent enough to tint with whatever's behind it, not so low it disappears. */
 private fun glassAlpha(enabled: Boolean) = if (enabled) 0.38f else 0.20f
 
-private val GlassRimBrush = Brush.linearGradient(
-    colors = listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f))
-)
-
+// No border here on purpose: a custom border on a Surface that also has
+// shadowElevation forces Android to compute the elevation shadow's outline
+// as a generic Path instead of the optimized circle/oval outline, which it
+// then approximates as a low-vertex polygon — the "octagon halo" bug. The
+// sheen below is content-level paint only, not part of the Surface's own
+// outline, so it doesn't have that problem.
 private val GlassSheenBrush = Brush.linearGradient(
     colors = listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0f)),
     start = Offset(0f, 0f),
@@ -1441,7 +1443,6 @@ private fun QuickCircleButton(
             modifier = Modifier
                 .size(size)
                 .scale(scale)
-                .border(1.dp, GlassRimBrush, CircleShape)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
@@ -1500,7 +1501,6 @@ private fun SmallCircleButton(
         modifier = Modifier
             .size(size)
             .scale(scale)
-            .border(1.dp, GlassRimBrush, CircleShape)
     ) {
         Box(
             contentAlignment = Alignment.Center,
@@ -1562,7 +1562,6 @@ private fun QuickCircleButtonWithLongPress(
             modifier = Modifier
                 .size(size)
                 .scale(scale)
-                .border(1.dp, GlassRimBrush, CircleShape)
                 .combinedClickable(
                     enabled = enabled,
                     onClick = onClick,
