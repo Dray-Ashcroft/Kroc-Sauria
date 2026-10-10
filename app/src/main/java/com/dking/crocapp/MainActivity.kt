@@ -10,6 +10,10 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -43,6 +47,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.res.stringResource
@@ -364,6 +373,7 @@ fun CrocApp(
             }
         ) {
             composable(CrocDestination.Quick.route) {
+                TabPageCard {
                 QuickScreen(
                     viewModel = quickViewModel,
                     onOpenScanner = { onCodeScanned ->
@@ -377,8 +387,10 @@ fun CrocApp(
                         navController.navigate(CrocDestination.Guide.route)
                     }
                 )
+                }
             }
             composable(CrocDestination.Send.route) {
+                TabPageCard {
                 SendScreen(
                     viewModel = sendViewModel,
                     onNavigateToHistory = {
@@ -388,8 +400,10 @@ fun CrocApp(
                         navController.navigate(CrocDestination.Settings.route)
                     }
                 )
+                }
             }
             composable(CrocDestination.Receive.route) {
+                TabPageCard {
                 ReceiveScreen(
                     viewModel = receiveViewModel,
                     onOpenScanner = {
@@ -402,6 +416,7 @@ fun CrocApp(
                         navController.navigate(CrocDestination.Settings.route)
                     }
                 )
+                }
             }
             composable(CrocDestination.History.route) {
                 HistoryScreen(
@@ -482,3 +497,65 @@ private fun pageSpec() = tween<IntOffset>(PAGE_MS, easing = PageEasing)
 private fun pageFloatSpec() = tween<Float>(PAGE_MS, easing = PageEasing)
 
 private val NavPillShape = RoundedCornerShape(32.dp)
+
+/**
+ * Card-deck page effect for the three main tabs.
+ *
+ * While a tab is settled on screen it is invisible glass over the backdrop,
+ * exactly as before. The moment it starts leaving or arriving it lifts into
+ * a card: it shrinks a little, gets rounded corners, a frosted fill and a
+ * bright rim, and slides as one solid sheet. As it lands, all of that melts
+ * back into the page. Because both pages shrink while moving, a gap opens
+ * between them — so it reads as two cards gliding past each other, not as
+ * two transparent screens overlapping.
+ *
+ * Every value is read inside graphicsLayer / draw lambdas, so the animation
+ * only re-draws; the screen itself never recomposes per frame.
+ */
+@OptIn(ExperimentalAnimationApi::class)
+@Composable
+private fun AnimatedVisibilityScope.TabPageCard(content: @Composable () -> Unit) {
+    // 0 = settled page, 1 = fully a card (off-screen / just starting to move).
+    val cardness = transition.animateFloat(
+        transitionSpec = { tween(PAGE_MS, easing = PageEasing) },
+        label = "pageCard"
+    ) { state -> if (state == EnterExitState.Visible) 0f else 1f }
+
+    val fill = MaterialTheme.colorScheme.surface
+    val dark = fill.luminance() < 0.5f
+    val rim = Color.White.copy(alpha = if (dark) 0.22f else 0.85f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val k = cardness.value
+                val s = 1f - CARD_SHRINK * k
+                scaleX = s
+                scaleY = s
+                shape = RoundedCornerShape(CARD_CORNER * k)
+                clip = k > 0.001f
+            }
+            .drawWithContent {
+                val k = cardness.value
+                if (k > 0.001f) {
+                    // Fade the fill in quickly so the card is solid for most of the move.
+                    drawRect(fill.copy(alpha = 0.9f * (k * 2.5f).coerceAtMost(1f)))
+                }
+                drawContent()
+                if (k > 0.001f) {
+                    val r = (CARD_CORNER * k).toPx()
+                    drawRoundRect(
+                        color = rim.copy(alpha = rim.alpha * k),
+                        cornerRadius = CornerRadius(r, r),
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
+                }
+            }
+    ) {
+        content()
+    }
+}
+
+private const val CARD_SHRINK = 0.08f
+private val CARD_CORNER = 36.dp
