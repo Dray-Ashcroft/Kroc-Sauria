@@ -9,7 +9,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import kotlin.math.PI
-import kotlin.math.max
 import kotlin.math.sin
 
 /**
@@ -121,6 +120,13 @@ class CrocodileRig {
 
     /** Seconds, advances only while [walking]; persists across stop/start so a resumed walk doesn't jump. */
     internal var timeSeconds: Float = 0f
+
+    /**
+     * Stride cycles completed (fractional part = where in the stride we are).
+     * Integrated frame-by-frame rather than computed as time × frequency, so
+     * the stride rate can drift slightly without the legs ever jumping.
+     */
+    internal var gaitCycles: Float = 0f
 }
 
 /** Creates a [CrocodileRig] and starts the frame driver that runs while `rig.walking` is true. */
@@ -134,8 +140,15 @@ fun rememberCrocodileRig(): CrocodileRig {
         while (true) {
             withFrameNanos { nanos ->
                 if (lastFrameNanos != 0L) {
-                    val dtSeconds = (nanos - lastFrameNanos) / 1_000_000_000f
+                    // Clamp so a dropped/paused frame can't teleport the legs.
+                    val dtSeconds = ((nanos - lastFrameNanos) / 1_000_000_000f).coerceAtMost(0.05f)
                     rig.timeSeconds += dtSeconds * rig.direction
+                    // Real animals never hold a metronome-exact cadence: let the
+                    // stride rate wander ±5% on two slow, unrelated rhythms.
+                    val wander = 1f +
+                        0.035f * sin(rig.timeSeconds * 0.71f) +
+                        0.015f * sin(rig.timeSeconds * 1.93f + 1.3f)
+                    rig.gaitCycles += dtSeconds * rig.direction * rig.walkSpeed * STRIDE_HZ * wander
                 }
                 lastFrameNanos = nanos
             }
@@ -147,49 +160,131 @@ fun rememberCrocodileRig(): CrocodileRig {
 }
 
 /**
- * legAngle = sin(time * speed + phase) * amplitude, exactly as requested —
- * one call per leg, four phase offsets. FrontLeft and RearRight share a
- * phase (diagonal pair 1); FrontRight and RearLeft share the opposite
- * phase (diagonal pair 2) — a front leg always moves with the
- * *opposite-side* rear leg, which is what makes it a trot instead of a
- * front-pair/rear-pair bound.
+ * Crocodilian "high walk", modelled on how crocodiles actually step rather
+ * than on four synchronised sine waves.
+ *
+ * What made the old version look robotic, and what replaces it:
+ *
+ * 1. Footfall order. The old gait was a trot — diagonal legs moving in exact
+ *    unison, 50% apart. Crocodiles in the high walk use a LATERAL-SEQUENCE
+ *    walk with diagonal couplets: hind foot, then the same-side fore foot
+ *    about a quarter-cycle later, then the other side's hind and fore.
+ *    Footfall order: near-hind → near-fore → far-hind → far-fore, 25% apart.
+ *
+ * 2. Stance vs swing. A sine spends equal time going backward (stance, foot on
+ *    the ground) and forward (swing, foot in the air), at a smoothly varying
+ *    speed. A walking quadruped's foot is planted for most of the stride
+ *    (duty factor ≈ 0.68 here) and sweeps back at a steady speed — the body
+ *    gliding over it — then flicks forward quickly in the air.
+ *
+ * 3. Knee timing. The old knee folded whenever the leg was behind the hip —
+ *    i.e. also during late stance, while the foot should be planted. Now the
+ *    knee stays almost straight through stance (a slight give mid-stance as
+ *    weight loads onto it) and lifts the foot only during swing.
+ *
+ * 4. Fore vs hind. Crocodilian hindlimbs are longer and do most of the
+ *    propulsion, so the forelimbs take a shorter stride with less lift.
+ *
+ * 5. Body, tail, head. The trunk settles slightly at each hind footfall; the
+ *    tail swings once per stride, lagging the hips (lateral undulation seen
+ *    side-on); the head counter-moves to stay level — gaze stabilisation —
+ *    plus a very slow scan so it never looks frozen.
+ *
+ * Note on names: with the head pointing right, the legs nearest the viewer
+ * are anatomically the animal's RIGHT legs, though the art layers are named
+ * "Left". The phases below are assigned by near/far, so the footfall order is
+ * correct whatever the layers are called.
  */
 private fun applyGait(rig: CrocodileRig) {
-    val t = rig.timeSeconds * rig.walkSpeed * TWO_PI
+    // 0..1 scale from the host's amplitude ease-in/out, so every secondary
+    // motion (bob, tail, head) settles to rest together with the legs.
+    val effort = (rig.legAmplitude / BASE_HIP_AMPLITUDE).coerceIn(0f, 1.5f)
+    val cycle = rig.gaitCycles
 
-    fun hipAngle(phase: Float) = rig.legAmplitude * sin(t + phase)
-
-    // Knee bend is asymmetric on purpose: it folds during the forward half
-    // of the swing (lifting the foot) and stays close to straight through
-    // the backward/stance half. A knee that just mirrored the hip's sine
-    // 1:1 would look like a second pendulum, not a step.
-    fun kneeAngle(phase: Float): Float {
-        val forward = smoothstep(max(0f, sin(t + phase)))
-        return 6f + rig.kneeBendAmplitude * forward
+    fun phaseOf(offset: Float): Float {
+        val x = (cycle + offset) % 1f
+        return if (x < 0f) x + 1f else x
     }
 
-    val phaseA = 0f
-    val phaseB = PI.toFloat()
+    /** Hip angle in degrees for stride position [u]. Positive = foot behind the hip. */
+    fun hip(u: Float, amp: Float): Float =
+        if (u < DUTY_FACTOR) {
+            // Stance: foot planted, leg sweeps back at a near-constant rate.
+            // A light blend with a cosine softens the touchdown/lift-off ends.
+            val v = u / DUTY_FACTOR
+            val linear = -1f + 2f * v
+            val eased = -kotlin.math.cos(PI.toFloat() * v)
+            amp * (0.75f * linear + 0.25f * eased)
+        } else {
+            // Swing: quick forward recovery that accelerates then brakes.
+            val s = (u - DUTY_FACTOR) / (1f - DUTY_FACTOR)
+            amp * (1f - 2f * smootherstep(s))
+        }
 
-    rig.setFrontLeftHipAngle(hipAngle(phaseA))
-    rig.setFrontLeftKneeAngle(kneeAngle(phaseA))
-    rig.setRearRightHipAngle(hipAngle(phaseA))
-    rig.setRearRightKneeAngle(kneeAngle(phaseA))
+    /** Knee angle in degrees for stride position [u]. Positive = foot folds up/back. */
+    fun knee(u: Float, lift: Float): Float =
+        if (u < DUTY_FACTOR) {
+            val v = u / DUTY_FACTOR
+            KNEE_REST + 4f * effort * sin(PI.toFloat() * v) // slight give under load
+        } else {
+            val s = (u - DUTY_FACTOR) / (1f - DUTY_FACTOR)
+            // Eases up from lift-off, peaks at mid-swing so the
+            // foot clears the ground, then extends to reach for the next footfall.
+            // (Every term starts and ends at zero speed — no twitch.)
+            val e = smootherstep(s)
+            val bump = sin(PI.toFloat() * (0.6f * s + 0.4f * e))
+            KNEE_REST + lift * bump * bump
+        }
 
-    rig.setFrontRightHipAngle(hipAngle(phaseB))
-    rig.setFrontRightKneeAngle(kneeAngle(phaseB))
-    rig.setRearLeftHipAngle(hipAngle(phaseB))
-    rig.setRearLeftKneeAngle(kneeAngle(phaseB))
+    val hindAmp = rig.legAmplitude
+    val foreAmp = rig.legAmplitude * 0.82f
+    val hindLift = rig.kneeBendAmplitude
+    val foreLift = rig.kneeBendAmplitude * 0.8f
 
-    // Light secondary motion, all subtle by design — the legs are the part
-    // that should read as obviously moving; these are texture on top.
-    rig.setTailSwayAngle(4f * sin(t * 0.5f + PI.toFloat() / 2f))
-    rig.setHeadAngle(2.5f * sin(t * 0.5f)) // gentle counter-sway vs. the tail
-    // Two footfalls per stride, always >= 0 — the body settles slightly on
-    // each step rather than floating up, and never moves independently of
-    // the legs (this offset is applied to the whole assembly in the
-    // renderer, legs included, so nothing detaches at the hip).
-    rig.setBodyBobOffset(1.6f * (0.5f - 0.5f * kotlin.math.cos(2f * t)))
+    // Lateral-sequence footfalls, 25% of a stride apart.
+    val nearHind = phaseOf(0.00f)
+    val nearFore = phaseOf(-0.25f)
+    val farHind = phaseOf(-0.50f)
+    val farFore = phaseOf(-0.75f)
+
+    rig.setRearLeftHipAngle(hip(nearHind, hindAmp))
+    rig.setRearLeftKneeAngle(knee(nearHind, hindLift))
+    rig.setFrontLeftHipAngle(hip(nearFore, foreAmp))
+    rig.setFrontLeftKneeAngle(knee(nearFore, foreLift))
+    rig.setRearRightHipAngle(hip(farHind, hindAmp))
+    rig.setRearRightKneeAngle(knee(farHind, hindLift))
+    rig.setFrontRightHipAngle(hip(farFore, foreAmp))
+    rig.setFrontRightKneeAngle(knee(farFore, foreLift))
+
+    val strideAngle = TWO_PI * cycle
+
+    // Trunk dips at each hind footfall (twice per stride), never floats up.
+    // Applied to the whole assembly, so nothing detaches at the hips.
+    val bob = 1.3f * effort * (0.5f + 0.5f * kotlin.math.cos(2f * strideAngle))
+    rig.setBodyBobOffset(bob)
+
+    // Tail: one swing per stride, lagging the near hip by ~0.15 cycle,
+    // plus a slow independent drift so successive strides aren't identical.
+    rig.setTailSwayAngle(
+        effort * (3.2f * sin(strideAngle - TWO_PI * 0.15f) +
+            1.2f * sin(rig.timeSeconds * 0.37f))
+    )
+
+    // Head holds steady against the bob (gaze stabilisation) with a very slow scan.
+    rig.setHeadAngle(
+        effort * (-0.9f * kotlin.math.cos(2f * strideAngle) + 1.6f * sin(rig.timeSeconds * 0.23f + 0.8f))
+    )
+}
+
+/** Stride frequency at walkSpeed = 1. Slow and deliberate, as a crocodile's high walk is. */
+private const val STRIDE_HZ = 0.8f
+private const val DUTY_FACTOR = 0.68f
+private const val BASE_HIP_AMPLITUDE = 20f
+private const val KNEE_REST = 6f
+
+private fun smootherstep(x: Float): Float {
+    val c = x.coerceIn(0f, 1f)
+    return c * c * c * (c * (c * 6f - 15f) + 10f)
 }
 
 private const val TWO_PI = (2.0 * PI).toFloat()
