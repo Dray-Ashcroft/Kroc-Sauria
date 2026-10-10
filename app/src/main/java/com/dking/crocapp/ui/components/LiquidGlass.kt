@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -137,8 +138,22 @@ fun GlassCard(
     colors: CardColors = CardDefaults.cardColors(),
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // Blurred shadows are re-rendered whenever a card changes size (e.g. the
+    // Send screen's mode panel morphs height on every frame of a switch).
+    // Phones handle that easily. Large displays — classroom smart panels,
+    // TVs, big tablets — push 4–8x the pixels through a much weaker GPU, and
+    // re-blurring there drops frames. So cards keep their shadow on phones
+    // and skip it on large screens (smallest width >= 600dp, Android's
+    // standard tablet/large-display threshold). Fixed-size glass (round
+    // buttons, nav bar, header) keeps its shadow everywhere: it is blurred
+    // once and reused.
+    val largeScreen = LocalConfiguration.current.smallestScreenWidthDp >= 600
     Card(
-        modifier = modifier.liquidGlass(shape = shape, tint = colors.containerColor, shadowElevation = 4.dp),
+        modifier = modifier.liquidGlass(
+            shape = shape,
+            tint = colors.containerColor,
+            shadowElevation = if (largeScreen) 0.dp else 4.dp
+        ),
         shape = shape,
         colors = CardDefaults.cardColors(
             containerColor = Color.Transparent,
