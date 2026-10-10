@@ -110,6 +110,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.dking.crocapp.ui.components.GlassCard
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -213,6 +214,7 @@ fun SendScreen(
     val borderColor = MaterialTheme.colorScheme.primary
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -230,7 +232,8 @@ fun SendScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
                 )
             )
         },
@@ -347,7 +350,7 @@ fun SendScreen(
                 enter = fadeIn() + slideInVertically(),
                 exit = fadeOut() + slideOutVertically()
             ) {
-                Card(
+                GlassCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
@@ -461,7 +464,7 @@ fun SendScreen(
                 enter = fadeIn() + slideInVertically(),
                 exit = fadeOut() + slideOutVertically()
             ) {
-                Card(
+                GlassCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
@@ -586,7 +589,7 @@ fun SendScreen(
                 enter = fadeIn() + slideInVertically(),
                 exit = fadeOut() + slideOutVertically()
             ) {
-                Card(
+                GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -660,7 +663,7 @@ fun SendScreen(
                     onDownloadsChange = { viewModel.setStoreDownloads(it) }
                 )
             } else {
-                Card(
+                GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -1175,7 +1178,7 @@ private fun StoreConfigurationCard(
         mutableStateOf(if (downloads !in presetDownloads) downloads.toString() else "")
     }
 
-    Card(
+    GlassCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -1454,7 +1457,7 @@ private fun StoreCompletedCard(
         )
     }
 
-    Card(
+    GlassCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -1691,7 +1694,7 @@ private fun StoreCompletedCard(
             // ──── 4. Received Text Card with Embedded Action Icons (Matching QuickScreen / ReceiveScreen) ────
             val activeContent = if (selectedTab == StoreResultTab.BROWSER_LINK) state.browserLink else state.cliToken
 
-            Card(
+            GlassCard(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)

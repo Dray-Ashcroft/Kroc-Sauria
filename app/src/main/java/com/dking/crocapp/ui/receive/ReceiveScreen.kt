@@ -71,6 +71,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import com.dking.crocapp.ui.components.GlassCard
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -162,6 +164,7 @@ fun ReceiveScreen(
     val borderColor = MaterialTheme.colorScheme.tertiary
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -179,7 +182,8 @@ fun ReceiveScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
                 )
             )
         },
@@ -229,7 +233,7 @@ fun ReceiveScreen(
             Spacer(modifier = Modifier.height(2.dp))
 
             // ──── Code Entry Card — with animated progress border ────
-            Card(
+            GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
@@ -474,7 +478,7 @@ fun ReceiveScreen(
 
             // ──── Received Files ────
             if (uiState.receivedFiles.isNotEmpty()) {
-                Card(
+                GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -537,7 +541,7 @@ fun ReceiveScreen(
                     it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
                 }
 
-                Card(
+                GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)

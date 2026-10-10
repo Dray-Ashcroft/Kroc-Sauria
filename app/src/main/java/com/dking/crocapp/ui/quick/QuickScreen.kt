@@ -71,7 +71,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material3.ripple
+import com.dking.crocapp.ui.components.liquidGlass
+import com.dking.crocapp.ui.components.GlassCard
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -151,6 +154,7 @@ fun QuickScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -165,7 +169,8 @@ fun QuickScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
                 )
             )
         }
@@ -268,8 +273,11 @@ private fun QuickBrandHeader() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.extraLarge)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .liquidGlass(
+                shape = MaterialTheme.shapes.extraLarge,
+                tint = MaterialTheme.colorScheme.surfaceContainerLow,
+                shadowElevation = 4.dp
+            )
             .padding(18.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -438,7 +446,7 @@ private fun QuickSendTransferCard(
     val hasSidePanel = state !is CrocTransferState.Error && state !is CrocTransferState.LegacyFallbackAvailable
     val isLegacy = activeEngine == CrocEngine.LEGACY
 
-    Card(
+    GlassCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -539,7 +547,7 @@ private fun QuickReceiveTransferCard(
     val hasSideTile = state !is CrocTransferState.Error && state !is CrocTransferState.LegacyFallbackAvailable
     val isLegacy = activeEngine == CrocEngine.LEGACY
 
-    Card(
+    GlassCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -833,7 +841,7 @@ private fun QuickTransferProgress(
 private fun QuickReceivedFilesCard(receivedFiles: List<ReceivedFile>) {
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    Card(
+    GlassCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -931,7 +939,7 @@ private fun QuickReceivedTextCard(
         it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
     }
 
-    Card(
+    GlassCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
@@ -1376,26 +1384,91 @@ private fun DiamondButtonCluster(
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Button Components — glassmorphic: translucent tinted fill (not fully
-// transparent) + a soft light rim + a diagonal sheen highlight, so each
-// circle reads as frosted glass sitting on the card rather than either a
-// flat opaque chip or literally invisible glass.
+// Button Components — liquid glass orbs.
+//
+// The old version used translucent Surfaces with shadowElevation, which is
+// what produced the octagon: Android's elevation shadow is a polygon drawn
+// *under* the surface, and a see-through fill lets you see it. These orbs
+// have no elevation at all; Modifier.liquidGlass draws its own soft shadow,
+// clipped so it only exists outside the circle.
+//
+// Press feedback is a gentle spring on scale, applied inside graphicsLayer so
+// the animation only re-draws (no recomposition per frame) — that keeps it
+// smooth even while the rest of the screen is busy.
 // ═══════════════════════════════════════════════════════════════
 
-/** Fill alpha: translucent enough to tint with whatever's behind it, not so low it disappears. */
-private fun glassAlpha(enabled: Boolean) = if (enabled) 0.38f else 0.20f
+/** Fill alpha: translucent enough to pick up the backdrop, not so low it disappears. */
+private fun glassAlpha(enabled: Boolean) = if (enabled) 0.62f else 0.30f
 
-// No border here on purpose: a custom border on a Surface that also has
-// shadowElevation forces Android to compute the elevation shadow's outline
-// as a generic Path instead of the optimized circle/oval outline, which it
-// then approximates as a low-vertex polygon — the "octagon halo" bug. The
-// sheen below is content-level paint only, not part of the Surface's own
-// outline, so it doesn't have that problem.
-private val GlassSheenBrush = Brush.linearGradient(
-    colors = listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0f)),
-    start = Offset(0f, 0f),
-    end = Offset(220f, 220f)
+private val OrbPressSpring = spring<Float>(
+    dampingRatio = 0.62f,              // a soft settle, no rubbery wobble
+    stiffness = Spring.StiffnessMediumLow
 )
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun GlassOrb(
+    icon: ImageVector,
+    contentDescription: String?,
+    size: Dp,
+    containerColor: Color,
+    contentColor: Color,
+    enabled: Boolean,
+    shadow: Dp,
+    iconSize: Dp,
+    onClick: () -> Unit,
+    onLongPress: (() -> Unit)? = null
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale = animateFloatAsState(
+        targetValue = if (isPressed) 0.93f else 1f,
+        animationSpec = OrbPressSpring,
+        label = "orbScale"
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(size)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            }
+            .liquidGlass(
+                shape = CircleShape,
+                tint = containerColor,
+                fillAlpha = glassAlpha(enabled),
+                shadowElevation = if (enabled) shadow else 0.dp
+            )
+            .clip(CircleShape)
+            .combinedClickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = ripple(color = contentColor),
+                onClick = onClick,
+                onLongClick = onLongPress
+            )
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) contentColor else contentColor.copy(alpha = 0.45f),
+            modifier = Modifier.size(iconSize)
+        )
+    }
+}
+
+@Composable
+private fun OrbLabel(label: String, enabled: Boolean) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = if (enabled) MaterialTheme.colorScheme.onSurface
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+    )
+}
 
 @Composable
 private fun QuickCircleButton(
@@ -1409,61 +1482,22 @@ private fun QuickCircleButton(
     elevation: Dp = 4.dp,
     iconSize: Dp = 32.dp
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.92f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "scale"
-    )
-
-    val animatedElevation by animateDpAsState(
-        targetValue = if (isPressed) 2.dp else elevation,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "elevation"
-    )
-
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Surface(
-            onClick = onClick,
-            enabled = enabled,
-            shape = CircleShape,
-            color = containerColor.copy(alpha = glassAlpha(enabled)),
+        GlassOrb(
+            icon = icon,
+            contentDescription = label,
+            size = size,
+            containerColor = containerColor,
             contentColor = contentColor,
-            tonalElevation = 2.dp,
-            shadowElevation = animatedElevation,
-            interactionSource = interactionSource,
-            modifier = Modifier
-                .size(size)
-                .scale(scale)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(GlassSheenBrush, CircleShape)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    modifier = Modifier.size(iconSize)
-                )
-            }
-        }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (enabled) MaterialTheme.colorScheme.onSurface
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+            enabled = enabled,
+            shadow = elevation + 4.dp,
+            iconSize = iconSize,
+            onClick = onClick
         )
+        OrbLabel(label, enabled)
     }
 }
 
@@ -1477,47 +1511,19 @@ private fun SmallCircleButton(
     onClick: () -> Unit,
     iconSize: Dp = 20.dp
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "scale"
-    )
-
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        shape = CircleShape,
-        color = containerColor.copy(alpha = glassAlpha(enabled)),
+    GlassOrb(
+        icon = icon,
+        contentDescription = null,
+        size = size,
+        containerColor = containerColor,
         contentColor = contentColor,
-        tonalElevation = 1.dp,
-        shadowElevation = 3.dp,
-        interactionSource = interactionSource,
-        modifier = Modifier
-            .size(size)
-            .scale(scale)
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .background(GlassSheenBrush, CircleShape)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(iconSize)
-            )
-        }
-    }
+        enabled = enabled,
+        shadow = 5.dp,
+        iconSize = iconSize,
+        onClick = onClick
+    )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QuickCircleButtonWithLongPress(
     icon: ImageVector,
@@ -1531,64 +1537,22 @@ private fun QuickCircleButtonWithLongPress(
     elevation: Dp = 4.dp,
     iconSize: Dp = 32.dp
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.92f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "scale"
-    )
-
-    val animatedElevation by animateDpAsState(
-        targetValue = if (isPressed) 2.dp else elevation,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "elevation"
-    )
-
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Surface(
-            shape = CircleShape,
-            color = containerColor.copy(alpha = glassAlpha(enabled)),
+        GlassOrb(
+            icon = icon,
+            contentDescription = label,
+            size = size,
+            containerColor = containerColor,
             contentColor = contentColor,
-            tonalElevation = 2.dp,
-            shadowElevation = animatedElevation,
-            modifier = Modifier
-                .size(size)
-                .scale(scale)
-                .combinedClickable(
-                    enabled = enabled,
-                    onClick = onClick,
-                    onLongClick = onLongPress,
-                    interactionSource = interactionSource,
-                    indication = null
-                )
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(GlassSheenBrush, CircleShape)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    modifier = Modifier.size(iconSize)
-                )
-            }
-        }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (enabled) MaterialTheme.colorScheme.onSurface
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+            enabled = enabled,
+            shadow = elevation + 4.dp,
+            iconSize = iconSize,
+            onClick = onClick,
+            onLongPress = onLongPress
         )
+        OrbLabel(label, enabled)
     }
 }

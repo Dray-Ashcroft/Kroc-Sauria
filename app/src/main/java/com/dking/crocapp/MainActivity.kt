@@ -10,7 +10,7 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,7 +21,11 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +42,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,6 +59,8 @@ import androidx.navigation.compose.rememberNavController
 import com.dking.crocapp.data.preferences.UserPreferencesRepository
 import com.dking.crocapp.croc.BinarySetupPhase
 import com.dking.crocapp.croc.CrocBinaryManager
+import com.dking.crocapp.ui.components.LiquidBackdrop
+import com.dking.crocapp.ui.components.liquidGlass
 import com.dking.crocapp.ui.guide.GuideScreen
 import com.dking.crocapp.ui.history.HistoryScreen
 import com.dking.crocapp.ui.navigation.CrocDestination
@@ -98,11 +107,15 @@ class MainActivity : AppCompatActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    CrocApp(
-                        sharedContent = sharedContent,
-                        settingsViewModel = settingsViewModel,
-                        binaryManager = binaryManager
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // Soft colour field behind every tab — what the glass tints against.
+                        LiquidBackdrop(modifier = Modifier.fillMaxSize())
+                        CrocApp(
+                            sharedContent = sharedContent,
+                            settingsViewModel = settingsViewModel,
+                            binaryManager = binaryManager
+                        )
+                    }
                 }
             }
         }
@@ -242,15 +255,30 @@ fun CrocApp(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         bottomBar = {
             AnimatedVisibility(
                 visible = showBottomBar,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                enter = slideInVertically(tween(PAGE_MS, easing = PageEasing)) { it } +
+                        fadeIn(tween(PAGE_MS, easing = PageEasing)),
+                exit = slideOutVertically(tween(PAGE_MS, easing = PageEasing)) { it } +
+                        fadeOut(tween(PAGE_MS / 2))
             ) {
+                // Floating liquid-glass pill instead of a flat full-width bar.
                 NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    tonalElevation = 0.dp
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .liquidGlass(
+                            shape = NavPillShape,
+                            tint = MaterialTheme.colorScheme.surfaceContainer,
+                            fillAlpha = 0.6f,
+                            shadowElevation = 8.dp
+                        )
+                        .clip(NavPillShape),
+                    containerColor = Color.Transparent,
+                    tonalElevation = 0.dp,
+                    windowInsets = WindowInsets(0, 0, 0, 0)
                 ) {
                     CrocDestination.bottomNavItems.forEach { destination ->
                         val selected = currentRoute == destination.route
@@ -295,61 +323,44 @@ fun CrocApp(
             navController = navController,
             startDestination = CrocDestination.Quick.route,
             modifier = Modifier.padding(paddingValues),
+            // Page-style motion, like swiping between pages of a book:
+            //  • tab ↔ tab: both pages slide a full screen width together over
+            //    the fixed glass backdrop (no half-slide + crossfade mush).
+            //  • opening Settings / History / Guide / Scanner: the new page slides
+            //    in from the right, the old one drifts a quarter-width left and
+            //    dims; back reverses it exactly.
+            // Every part uses the same duration and easing, so nothing is still
+            // moving after something else has stopped — that mismatch is what
+            // reads as stutter.
             enterTransition = {
-                // Determine direction based on tab index
                 val fromIndex = tabRoutes.indexOf(initialState.destination.route)
                 val toIndex = tabRoutes.indexOf(targetState.destination.route)
-                when {
-                    fromIndex >= 0 && toIndex >= 0 -> {
-                        // Tab-to-tab: slide + fade, same duration/easing so neither
-                        // one is still animating after the other has finished —
-                        // that mismatch (a spring settling slower than the fade)
-                        // was the main source of visible stutter here.
-                        val direction = if (toIndex > fromIndex) 1 else -1
-                        slideInHorizontally(
-                            initialOffsetX = { direction * it / 4 },
-                            animationSpec = tween(220, easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing))
-                    }
-                    else -> {
-                        // Push screens: slide up
-                        fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
-                                slideInVertically(
-                                    initialOffsetY = { it / 6 },
-                                    animationSpec = tween(220, easing = FastOutSlowInEasing)
-                                )
-                    }
+                if (fromIndex >= 0 && toIndex >= 0) {
+                    val direction = if (toIndex > fromIndex) 1 else -1
+                    slideInHorizontally(pageSpec()) { direction * it } +
+                            fadeIn(pageFloatSpec(), initialAlpha = 0.6f)
+                } else {
+                    slideInHorizontally(pageSpec()) { it }
                 }
             },
             exitTransition = {
                 val fromIndex = tabRoutes.indexOf(initialState.destination.route)
                 val toIndex = tabRoutes.indexOf(targetState.destination.route)
-                when {
-                    fromIndex >= 0 && toIndex >= 0 -> {
-                        val direction = if (toIndex > fromIndex) -1 else 1
-                        slideOutHorizontally(
-                            targetOffsetX = { direction * it / 4 },
-                            animationSpec = tween(220, easing = FastOutSlowInEasing)
-                        ) + fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing))
-                    }
-                    else -> {
-                        fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
-                    }
+                if (fromIndex >= 0 && toIndex >= 0) {
+                    val direction = if (toIndex > fromIndex) -1 else 1
+                    slideOutHorizontally(pageSpec()) { direction * it } +
+                            fadeOut(pageFloatSpec(), targetAlpha = 0.6f)
+                } else {
+                    slideOutHorizontally(pageSpec()) { -it / 4 } +
+                            fadeOut(pageFloatSpec(), targetAlpha = 0.4f)
                 }
             },
             popEnterTransition = {
-                fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
-                        slideInVertically(
-                            initialOffsetY = { -it / 8 },
-                            animationSpec = tween(220, easing = FastOutSlowInEasing)
-                        )
+                slideInHorizontally(pageSpec()) { -it / 4 } +
+                        fadeIn(pageFloatSpec(), initialAlpha = 0.4f)
             },
             popExitTransition = {
-                fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
-                        slideOutVertically(
-                            targetOffsetY = { it / 6 },
-                            animationSpec = tween(180, easing = FastOutSlowInEasing)
-                        )
+                slideOutHorizontally(pageSpec()) { it }
             }
         ) {
             composable(CrocDestination.Quick.route) {
@@ -461,3 +472,13 @@ fun CrocApp(
         }
     }
 }
+
+// ── Page motion ─────────────────────────────────────────────────
+// Material 3 "emphasized" curve: quick start, long gentle landing.
+private val PageEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+private const val PAGE_MS = 380
+
+private fun pageSpec() = tween<IntOffset>(PAGE_MS, easing = PageEasing)
+private fun pageFloatSpec() = tween<Float>(PAGE_MS, easing = PageEasing)
+
+private val NavPillShape = RoundedCornerShape(32.dp)
