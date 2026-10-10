@@ -6,7 +6,13 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -344,12 +350,31 @@ fun SendScreen(
                 }
             }
 
-            // ──── File Selection Card — with animated progress border ────
-            AnimatedVisibility(
-                visible = uiState.sendMode == SendMode.FILES,
-                enter = fadeIn() + slideInVertically(),
-                exit = fadeOut() + slideOutVertically()
-            ) {
+            // ──── Mode panel: Files / Folder / Text ────
+            // One slot that swaps its content, instead of three separate
+            // AnimatedVisibility blocks. With three blocks, the old panel kept
+            // its full height in the Column while it slowly faded out and the
+            // new one appeared *below* it — so the screen grew, waited for the
+            // default spring to settle, then snapped up. That wait is what felt
+            // slow. Here the old panel leaves and the new one arrives in the
+            // same place in ~240ms, sliding in the direction of the tab you
+            // tapped, while the card height morphs smoothly between the two.
+            AnimatedContent(
+                targetState = uiState.sendMode,
+                transitionSpec = {
+                    val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                    (slideInHorizontally(tween(MODE_MS, easing = ModeEasing)) { dir * it / 5 } +
+                        fadeIn(tween(MODE_MS / 2, delayMillis = MODE_MS / 6)))
+                        .togetherWith(
+                            slideOutHorizontally(tween(MODE_MS, easing = ModeEasing)) { -dir * it / 5 } +
+                                fadeOut(tween(MODE_MS / 3))
+                        )
+                        .using(SizeTransform(clip = false) { _, _ -> tween(MODE_MS, easing = ModeEasing) })
+                },
+                label = "sendModePanel"
+            ) { mode ->
+            when (mode) {
+            SendMode.FILES -> {
                 GlassCard(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -459,11 +484,7 @@ fun SendScreen(
             }
 
             // ──── Folder Selection Card ────
-            AnimatedVisibility(
-                visible = uiState.sendMode == SendMode.FOLDER,
-                enter = fadeIn() + slideInVertically(),
-                exit = fadeOut() + slideOutVertically()
-            ) {
+            SendMode.FOLDER -> {
                 GlassCard(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -584,11 +605,7 @@ fun SendScreen(
             }
 
             // ──── Text Input ────
-            AnimatedVisibility(
-                visible = uiState.sendMode == SendMode.TEXT,
-                enter = fadeIn() + slideInVertically(),
-                exit = fadeOut() + slideOutVertically()
-            ) {
+            SendMode.TEXT -> {
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -618,6 +635,9 @@ fun SendScreen(
                     }
                 }
             }
+
+            } // when
+            } // AnimatedContent
 
             // ──── Transfer Progress / Result ────
             AnimatedVisibility(
@@ -1863,3 +1883,7 @@ private fun StoreCompletedCard(
         }
     }
 }
+
+// Mode-panel motion: short, with a gentle landing (Material 3 emphasized curve).
+private const val MODE_MS = 240
+private val ModeEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
